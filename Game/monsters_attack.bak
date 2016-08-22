@@ -1,0 +1,182 @@
+#lang racket
+
+; A Direction is one of:
+;   'up
+;   'down
+;   'right
+;   'left
+
+; A RoomId is a Number
+; A Health is a Number
+
+; A Room is (room RoomId String List(Exit))
+; A Player is (player Symbol RoomId Health)
+; An Exit is (exit Direction RoomId)
+; A Monster is (monster RoomId Symbol Health)
+
+(struct room (id description exits))
+(struct player (name room-id health) #:mutable)
+(struct exit (direction room-id))
+(struct monster (room-id description health) #:mutable)
+
+; dungeon : List(Room)
+
+(define dungeon 
+  (list
+   (room 1 "a green room" (list (exit 'up 2) (exit 'right 3)(exit 'left 4)))
+   (room 2 "a red room" (list (exit 'down 1)(exit 'left 5)))
+   (room 3 "a room that smells of pizza" (list (exit 'left 1) (exit 'down 4)))
+   (room 4 "a glowing room" (list (exit 'risht 1)(exit 'up 5)))
+   (room 5 "a room of danger" (list (exit 'right 2)(exit 'down 4)))))
+
+; me : Player(define me (player 'Gangster 1))
+
+(define me (player 'Gangster 1 11))
+
+; monsters : List(Monster)
+
+(define monsters
+  (list
+   (monster 1 'Hulk 10)))
+
+; Room? is one of:
+;   Room
+;   #f
+; get-room : Number -> Room?
+
+(define (get-room id)
+  (findf (λ (room) (= (room-id room) id)) dungeon))
+
+(define (play)
+  (say-hello)
+  (command-loop)
+  (say-goodbye))
+
+; Continue to process commands until the player quits.
+(define (command-loop)
+  (describe-current-location)
+  (when (perform-player-command)
+    (when (monster-actions monsters)
+      (command-loop))))
+
+; monster-actions : List(Monster) -> Boolean
+
+(define (monster-actions monsters)
+  (if (null? monsters)
+      #t
+      (if (monster-action (car monsters))
+          (monster-actions (cdr monsters))
+          #f)))
+
+; monster-in-same-room? : Monster -> Boolean
+
+(define (monster-in-same-room? monster)
+  (= (player-room-id me) (monster-room-id monster)))
+
+; chance : Number -> Boolean
+
+(define (chance? n)
+  (= (random n) 0))
+
+; player-dies : -> Boolean
+(define (player-dies)
+  (printf "You die!~%")
+  #f)
+
+; monster-hits : Monster Number -> Boolean
+(define (monster-hits monster damage)
+  (printf "The ~a smash!~%" (monster-description monster))
+  (set-player-health! me (- (player-health me) damage))
+  (if (<= (player-health me) 0)
+      (player-dies)
+      #t))
+
+; monster-misses : Monster -> Boolean
+
+(define (monster-misses monster)
+  (printf "The ~a misses!~%" (monster-description monster))
+  #t)
+
+; monster-attacks : Monster -> Boolean
+
+(define (monster-attacks monster)
+  (let ((damage (random 3)))
+    (if (> damage 0)
+        (monster-hits monster damage)
+        (monster-misses monster))))
+
+; monster-action Monster -> Boolean
+; perform an action and return #t when the game can continue
+; return #f when the game is over.
+
+(define (monster-action monster)
+  (if (and (monster-in-same-room? monster) (chance? 2))
+      (monster-attacks monster)
+      #t))
+
+(define (say-hello)
+  (printf "Welcome to the dungeon ~a~%" (player-name me)))
+
+(define (describe-current-location)
+  (let ((room (get-room (player-room-id me))))
+    (if (room? room)
+        (let ((co-located-monsters
+               (filter (λ (m) (= (monster-room-id m) (room-id room))) monsters)))
+          (printf "You are in ~a~%" (room-description room))
+          (for/list ((monster co-located-monsters))
+            (printf "There is a ~a here.~%" (monster-description monster))))
+        (printf "I have no idea where you are!~%"))))
+
+(define (perform-player-command)
+  (let ((command (read)))
+    (cond ((equal? command 'quit) #f)
+          ((and (list? command) (eq? (car command) 'move))
+           (move-player (cadr command))
+           #t)
+          ((and (list? command) (eq? (car command) 'hit))
+           (player-hits (cadr command)))
+          (#t (printf "Huh?~%")
+              #t)))) 
+
+; find-monster : Symbol -> Monster or #f
+; Returns the monster in the same location as the player and with the 
+; supplied description. Returns #f otherwise.
+
+(define (find-monster description)
+  (findf (λ (m) (and (monster-in-same-room? m) (eq? (monster-description m) description))) monsters))
+
+(define (monster-dies monster)
+  (printf "The ~a dies!~%" (monster-description monster))
+  (set! monsters (remove monster monsters)))
+
+(define (hit-monster monster damage)
+  (set-monster-health! monster (- (monster-health monster) damage))
+  (if (<= (monster-health monster) 0)
+      (monster-dies monster)
+      (printf "You hit the ~a~%" (monster-description monster))))
+
+(define (player-hits target)
+  (let ((monster (find-monster target)))
+    (if (monster? monster)
+        (let ((damage (random 3)))
+          (if (> damage 0)
+              (hit-monster monster damage)
+              (printf "You miss the ~a~%" target)))
+        (printf "There is no ~a here.~%" target))))
+
+(define (move-player direction)
+  (let ((room (get-room (player-room-id me))))
+    (if (has-exit? room direction)
+        (set-player-room-id! me (exit-leads-to room direction))
+        (printf "You cannot go ~a from here~%" direction))))
+
+; has-exit : Room Direction -> Boolean
+(define (has-exit? room direction)
+  (findf (λ (e) (eq? (exit-direction e) direction)) (room-exits room)))
+
+; exit-leads-to : Room Direction -> RoomId
+(define (exit-leads-to room direction)
+  (exit-room-id (findf (λ (e) (eq? (exit-direction e) direction)) (room-exits room))))
+
+(define (say-goodbye)
+  (printf "Bye ~a~%" (player-name me)))
