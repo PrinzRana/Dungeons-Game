@@ -1,0 +1,37 @@
+#lang racket
+
+(provide make-client test-client)
+
+(require racket/tcp)
+(require "client-tool.rkt")
+(require racket/trace)
+
+;;; The host-name
+(define host-name "localhost")
+
+;;; The port to use for connecting to the server...
+(define port 1234)
+
+;;; Connect to the server...
+(define (connect user-name client-id host-name port)
+  ;;; The protocol when connecting is to send a user
+  ;;; structure to the server to that it can register
+  ;;; the client...
+  (let-values
+      (([input output] (tcp-connect host-name port)))
+    (let ((tool 
+           (new client-tool%
+                [user-name user-name]
+                [id client-id]
+                [from-server input]
+                [to-server output])))
+      (send tool register)
+      (send tool show #t)
+      (send tool start))))
+
+(define (make-client user-name client-id)
+  (connect user-name client-id host-name port))
+
+(define (test-client port-id user-name user-id)
+  (set! port port-id)
+  (make-client user-name user-id))
